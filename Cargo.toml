@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "pool",
+    "device",
+    # "proxy",
+    # "monitor",
+]

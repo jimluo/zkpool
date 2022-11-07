@@ -1,0 +1,10 @@
+{
+    "program": "testaleo.aleo",
+    "version": "0.0.0",
+    "description": "",
+    "development": {
+        "private_key": "APrivateKey1zkp8aD7QzehvCS7fKH4E2EPRgJwyRELDvZrzQJpQ5zKKiAh",
+        "address": "aleo14cxqfrz29fxvt8e8gtwhx6xsdrdmmt6ht8q2xd2zc8mh6rvls58qlv70fx"
+    },
+    "license": "MIT"
+}
