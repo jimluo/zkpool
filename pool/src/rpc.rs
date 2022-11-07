@@ -8,7 +8,7 @@ use jsonrpsee::{
     types::Params,
     RpcModule,
 };
-use snarkvm::prelude::{Address, Testnet3};
+// use snarkvm::prelude::{Address, Testnet3};
 use std::{
     collections::{ HashSet},
     env,
@@ -67,6 +67,10 @@ impl Rpc {
         Ok((rpc, rpc_handler))
     }
 
+    pub fn status(&self) -> String {
+        format!("connected client count={}", self.inner.lock().unwrap().clients.len())
+    }
+
     pub async fn initialize(&self) {
         let port = env::var("RPC_PORT").unwrap_or_else(|_| "52066".to_string());
         let addr = format!("0.0.0.0:{}", port);
@@ -112,11 +116,6 @@ impl Rpc {
     /// call by device rpc request submit new share
     pub fn on_submit(&self, params: Params) {
         if let Ok((address, count)) = params.parse::<(String, u64)>() {
-            // let addr = serde_json::from_str::<String>(&address);
-            // if addr.is_err() {
-            //      error!("Fail on submit parse addr {:?}", address);
-            //      return;
-            // };
             debug!("Websocket on_submit at {} {}", address, count);
 
             let req = NodeRequest::NewBlock(address, count);
@@ -125,6 +124,7 @@ impl Rpc {
                 if let Err(error) = node.send(req).await {
                     warn!("[NodeRequest] {}", error);
                 }
+                debug!("send node request nwe block");
             });
         }
     }
@@ -148,14 +148,11 @@ impl Rpc {
     /// Performs the given `request` to the rpc server.
     /// All requests must go through this `update`, so that a unified view is preserved.
     pub(super) async fn update(&self, _request: RpcRequest) {
-        // match request {
-        //     RpcRequest::NewShare(address, block_hash) => {}
-        // }
         let req = NodeRequest::NewBlock("address".into(), 3);
         let node = self.services.node().router().clone();
         tokio::spawn(async move {
             if let Err(error) = node.send(req).await {
-                warn!("[NodeRequest] {}", error);
+                error!("[NodeRequest] {}", error);
             }
         });
     }

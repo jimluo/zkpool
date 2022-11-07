@@ -9,9 +9,9 @@ mod shares;
 
 use anyhow::Result;
 use clap::Parser;
+use dotenv::dotenv;
 use pool::Pool;
 use std::net::SocketAddr;
-use dotenv::dotenv;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -25,20 +25,23 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()?.add_directive("jsonrpsee".parse()?);
+    // let filter = tracing_subscriber::EnvFilter::try_from_default_env()?.add_directive("jsonrpsee".parse()?);
 
-    tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(filter)
-        .with_max_level(tracing::Level::DEBUG)
-        .try_init()
-        .expect("setting default subscriber failed");
+    // tracing_subscriber::FmtSubscriber::builder()
+    //     .with_env_filter(filter)
+    //     .with_max_level(tracing::Level::DEBUG)
+    //     .try_init()
+    //     .expect("setting default subscriber failed");
 
     dotenv().ok();
 
     let _args = Args::parse();
-    let _pool = Pool::start().await?;
+    let pool = Pool::start().await?;
 
-    loop{};
+    tokio::task::block_in_place(move || {
+        pool.status();
+        tokio::time::sleep(std::time::Duration::from_secs(2));
+    });
 
     Ok(())
 }

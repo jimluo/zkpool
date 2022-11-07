@@ -1,14 +1,13 @@
 use anyhow::Result;
 use once_cell::race::OnceBox;
 use std::sync::Arc;
-use tracing::{debug};
+use tracing::debug;
 
 use crate::{
     node::{Node, NodeHandler},
     rpc::{Rpc, RpcHandler},
     shares::{Shares, SharesHandler},
 };
-
 
 #[derive(Debug)]
 pub struct Services {
@@ -38,16 +37,16 @@ impl Services {
         self.shares.get().unwrap()
     }
 
-    pub async fn initialize_rpc(&self, rpc: Rpc, mut handler: RpcHandler) {
+    pub async fn initialize_rpc(&self, rpc: Rpc, _handler: RpcHandler) {
         self.rpc.set(rpc.into()).map_err(|_| ()).unwrap();
 
         self.rpc().initialize().await;
-        let rpc = self.rpc().clone();
-        tokio::spawn(async move {
-            while let Some(request) = handler.recv().await {
-                rpc.update(request).await;
-            }
-        });
+        // let rpc = self.rpc().clone();
+        // tokio::spawn(async move {
+        //     while let Some(request) = handler.recv().await {
+        //         rpc.update(request).await;
+        //     }
+        // });
     }
 
     pub async fn initialize_node(&self, node: Node, mut handler: NodeHandler) {
@@ -59,6 +58,7 @@ impl Services {
         let node = self.node().clone();
         tokio::spawn(async move {
             while let Some(request) = handler.recv().await {
+                debug!("handler.recv() into node");
                 node.update(request).await;
             }
         });
@@ -67,9 +67,10 @@ impl Services {
     pub async fn initialize_shares(&self, shares: Shares, mut handler: SharesHandler) {
         self.shares.set(shares.into()).map_err(|_| ()).unwrap();
 
-        let shares = self.shares().clone();
+        let mut shares = self.shares().clone();
         tokio::spawn(async move {
             while let Some(request) = handler.recv().await {
+                debug!("handler.recv() into shares");
                 shares.update(request).await;
             }
         });
@@ -96,5 +97,9 @@ impl Pool {
         services.initialize_node(node, node_handler).await;
 
         Ok(Pool { services })
+    }
+    
+    pub fn status(&self) {
+        println!("{} {}", self.services.rpc().status(), self.services.shares().status());
     }
 }

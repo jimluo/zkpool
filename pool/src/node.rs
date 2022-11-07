@@ -1,7 +1,7 @@
 use anyhow::{bail, ensure, Result};
 use core::str::FromStr;
 use parking_lot::RwLock;
-use rand::{thread_rng, RngCore};
+use rand::{RngCore};
 use snarkvm::{
     file::Manifest,
     package::Package,
@@ -50,10 +50,11 @@ pub enum NodeRequest {
 #[derive(Clone)]
 pub struct Node {
     pub ledger: Arc<RwLock<InternalLedger<Testnet3>>>,
-    // runtime: tokio::runtime::Runtime,
     private_key: PrivateKey<Testnet3>,
     view_key: ViewKey<Testnet3>,
     address: Address<Testnet3>,
+    // block_height: u32,
+    // block_hash: BlockHash,
 
     node_router: NodeRouter, // send to node
     services: Arc<Services>,
@@ -65,14 +66,21 @@ impl fmt::Debug for Node {
     }
 }
 
+// Executing 'credits.aleo/genesis'...
+// Executed 'genesis' (in 2529 ms)
+// Verified 'genesis' (in 9 ms)
+// Loaded universal setup (in 2466 ms)
+// Built 'hello' (in 12176 ms)
+// Certified 'hello': 341 ms
+// Calling 'credits.aleo/fee'...
+// Executed 'fee' (in 5564 ms)
+// Verified certificate for 'hello': 55 ms
+// Verified 'fee' (in 10 ms)
+// Executing 'credits.aleo/transfer'...
+// Executed 'transfer' (in 8045 ms)
 impl Node {
     pub async fn new(services: Arc<Services>) -> Result<(Self, mpsc::Receiver<NodeRequest>)> {
         debug!("Node starting");
-
-        let _runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .thread_stack_size(8 * 1024 * 1024)
-            .build()?;
 
         // 1. Retrieve the private key.
         let directory = env::current_dir().unwrap(); //.join("./program/");
@@ -87,7 +95,7 @@ impl Node {
         let genesis = Block::genesis(&VM::new(store)?, &private_key, rng)?;
         let ledger = Arc::new(RwLock::new(InternalLedger::new_with_genesis(&genesis, address, None)?));
 
-
+        // let block_hash = AleoID::from(Field::from_u64(rng.next_u64()));
 
         let (node_router, node_handler) = mpsc::channel(1024);
         let node = Self {
@@ -96,6 +104,9 @@ impl Node {
             private_key: *private_key,
             view_key,
             address,
+            // block_hash,
+            // block_height: genesis.height(),
+            // block_hash: genesis.hash(),
             node_router,
             services,
         };
@@ -130,17 +141,8 @@ impl Node {
     /// Performs the given `request` to the rpc server.
     /// All requests must go through this `update`, so that a unified view is preserved.
     pub(super) async fn update(&self, request: NodeRequest) {
-        let result = tokio::task::spawn_blocking(move || {
-            let rng = &mut thread_rng();
-            (rng.next_u32(), rng.next_u64())
-        })
-        .await
-        .unwrap();
-
-        let height = result.0;
-        let blockhash: BlockHash = AleoID::from(Field::from_u64(result.1));
-        let reward = 666;
         debug!("receive new block, add to mempool, add new block");
+
         let shares = self.services.shares().router();
         match request {
             NodeRequest::NewBlock(address, count) => {
@@ -149,7 +151,9 @@ impl Node {
                     self.add_to_memory_pool(transaction).unwrap();
                 }
                 let block = self.advance_to_next_block().unwrap();
-                let req = SharesRequest::NewBlock(height, block.hash().to_string(), reward);
+
+                let req = SharesRequest::NewBlock(block.height() + 1, block.hash(), address);
+                // let req = SharesRequest::NewBlock(1, self.block_hash, 666); // test
                 if let Err(error) = shares.send(req).await {
                     warn!("[NodeRequest] {}", error);
                 }

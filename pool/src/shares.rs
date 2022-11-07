@@ -1,6 +1,5 @@
-use std::{collections::HashMap, env, sync::Arc};
-use anyhow::Result;
 use crate::pool::Services;
+use anyhow::Result;
 use deadpool_postgres::{
     ClientWrapper,
     Config,
@@ -14,6 +13,7 @@ use deadpool_postgres::{
     Runtime,
 };
 use snarkvm::prelude::{Network, Testnet3};
+use std::{env, sync::Arc};
 use tokio::sync::mpsc;
 use tokio_postgres::NoTls;
 use tracing::{debug, error, info};
@@ -24,14 +24,15 @@ pub type BlockHash = <Testnet3 as Network>::BlockHash;
 
 #[derive(Clone, Debug)]
 pub enum SharesRequest {
-    // NewBlock(u32, BlockHash, i64), //height, block_hash, reward
-    NewBlock(u32, String, i64), //height, block_hash, reward
+    NewBlock(u32, BlockHash, String), //height, block_hash, address
+                                      // NewBlock(u32, String, i64), //height, block_hash, reward
 }
 
 #[derive(Clone, Debug)]
 #[allow(clippy::type_complexity)]
 pub struct Shares {
     connection_pool: deadpool_postgres::Pool,
+    block_count: usize,
     shares_router: SharesRouter,
     services: Arc<Services>,
 }
@@ -45,11 +46,16 @@ impl Shares {
         let (shares_router, shares_handler) = mpsc::channel(1024);
         let shares = Self {
             connection_pool,
+            block_count: 0,
             shares_router,
             services,
         };
 
         Ok((shares, shares_handler))
+    }
+
+    pub fn status(&self) -> String {
+        format!("block count {}", self.block_count)
     }
 
     pub fn router(&self) -> &SharesRouter {
@@ -58,15 +64,16 @@ impl Shares {
 
     /// Performs the given `request` to the rpc server.
     /// All requests must go through this `update`, so that a unified view is preserved.
-    pub(super) async fn update(&self, request: SharesRequest) {
+    pub(super) async fn update(&mut self, request: SharesRequest) {
+        debug!("receive new block, save_db");
         match request {
-            SharesRequest::NewBlock(height, block_hash, reward) => {
-                let address_shares = HashMap::new();
-                if let Err(e) = Shares::save_db(&self.connection_pool, height, block_hash, reward, address_shares).await
-                {
-                    error!("Failed to save block reward : {}", e);
-                } else {
-                    info!("Recorded block {}", height);
+            SharesRequest::NewBlock(height, block_hash, address) => {
+                match Shares::save_db(&self.connection_pool, height, block_hash.to_string(), address).await {
+                    Ok(id) => {
+                        self.block_count += 1;
+                        info!("Recorded block id={id}, count={}", self.block_count);
+                    }
+                    Err(e) => error!("Failed to save block reward : {}", e),
                 }
             }
         }
@@ -127,12 +134,14 @@ impl Shares {
         conn: &Pool,
         height: u32,
         block_hash: String,
-        reward: i64,
-        shares: HashMap<String, u64>,
+        // reward: i64,
+        address: String,
+        // shares: HashMap<String, u64>,
     ) -> Result<i32> {
         let mut conn = conn.get().await?;
         let transaction = conn.transaction().await?;
 
+        let reward: i32 = 666;
         let block_id: i32 = transaction
             .query_one(
                 "INSERT INTO block (height, block_hash, reward) VALUES ($1, $2, $3) RETURNING id",
@@ -141,21 +150,27 @@ impl Shares {
             .await?
             .try_get("id")
             .unwrap_or(0);
-        
-            debug!("save_db -> block_id: {:?}", block_id);
 
-        let stmt = transaction
-            .prepare_cached("INSERT INTO share (block_id, miner, share) VALUES ($1, $2, $3)")
+        debug!("save_db -> block_id: {:?}", block_id);
+
+        // let stmt = transaction
+        //     .prepare_cached("INSERT INTO share (block_id, miner, share) VALUES ($1, $2, $3)")
+        //     .await?;
+        let shares: i64 = 1;
+        transaction
+            .execute("INSERT INTO share (block_id, miner, share) VALUES ($1, $2, $3)", &[
+                &block_id, &address, &shares,
+            ])
             .await?;
-        for (address, share) in shares {
-            transaction
-                .query(&stmt, &[&block_id, &address, &(share as i64)])
-                .await?;
-        }
+        // for (address, share) in shares {
+        //     transaction
+        //         .query(&stmt, &[&block_id, &address, &(share as i64)])
+        //         .await?;
+        // }
 
         transaction.commit().await?;
 
-        debug!("save db a block id: {:?}", block_id);
+        debug!("save db a block id: {block_id}");
 
         Ok(block_id)
     }
@@ -166,8 +181,8 @@ mod tests {
     use crate::shares::Shares;
     use dotenv::dotenv;
     use rand::{thread_rng, RngCore};
-    use snarkvm::prelude::{AleoID, Field};
-    use std::collections::HashMap;
+    use snarkvm::prelude::{Address, AleoID, Field, Network, Testnet3};
+    pub type BlockHash = <Testnet3 as Network>::BlockHash;
 
     #[tokio::test]
     async fn save_db_should_work() {
@@ -179,10 +194,11 @@ mod tests {
         let rng = &mut thread_rng();
 
         let height = rng.next_u32();
-        let blockhash = AleoID::from(Field::from_u64(rng.next_u64()));
-        let reward: i64 = rng.next_u64() as i64;
-        let shares = HashMap::new();
-        let block_id = Shares::save_db(&pool, height, blockhash, reward, shares).await.unwrap();
+        let blockhash: BlockHash = AleoID::from(Field::from_u64(rng.next_u64()));
+        let address = Address::rand(rng);
+        let block_id = Shares::save_db(&pool, height, blockhash.to_string(), address)
+            .await
+            .unwrap();
 
         let conn = pool.get().await.unwrap();
         let rows = conn
@@ -195,7 +211,6 @@ mod tests {
         assert!(block_id == row.get::<&str, i32>("id"));
         assert!(height == row.get::<&str, i64>("height") as u32);
         assert!(blockhash.to_string() == row.get::<&str, String>("block_hash"));
-        assert!(reward == row.get::<&str, i64>("reward"));
 
         let sql_delete_row = format!("DELETE FROM pool.block WHERE id={}", block_id);
         let rows = conn.query(sql_delete_row.as_str(), &[]).await.unwrap();

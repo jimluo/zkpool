@@ -27,18 +27,6 @@ git = "https://github.com/paritytech/jsonrpsee"
 rev = "e649f38"
 features = ["full"]
 
-# [dependencies.snarkvm]
-# git = "https://github.com/AleoHQ/snarkVM.git"
-# branch = "feat/new-posw-prover"
-# features = [
-#     "cuda",
-#     "algorithms",
-#     "curves",
-#     "fields",
-#     "r1cs",
-#     "utilities",
-#     "parallel",
-# ]
 [dependencies.snarkvm]
 #path = "../snarkVM"
 git = "https://github.com/AleoHQ/snarkVM.git"
