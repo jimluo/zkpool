@@ -31,4 +31,4 @@ features = ["full"]
 #path = "../snarkVM"
 git = "https://github.com/AleoHQ/snarkVM.git"
 rev = "4045a57"
-features = ["aleo-cli", "circuit", "console", "parallel", "rest"]
+features = ["circuit", "parallel"]

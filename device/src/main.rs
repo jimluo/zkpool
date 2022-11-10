@@ -6,101 +6,108 @@ use clap::Parser;
 use std::net::SocketAddr;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use std::ffi::OsString;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[clap(default_value = "127.0.0.1:52066", short, long)]
-    pub server: SocketAddr,
+	#[arg(short, long, default_value = "127.0.0.1:52066")]
+	server: SocketAddr,
 
-    #[clap(
-        default_value = "aleo15te0tcennt8lmrd4e0wjvgwr775cpq5rcsvws0ckgenqx6aaxv8sjlgg9a",
-        short,
-        long = "account-address"
-    )]
-    address: String,
+	#[arg(short, long, default_value_t = hostname())]
+	//, default_value = hostname()?.into_string().unwrap_or("unknown".into()))]
+	workername: String,
 
-    #[clap(default_value = "xxx", short, long = "api-key")]
-    pub token: String,
+	#[arg(short, long, default_value = "aleozkpmarlin")]
+	apikey: String,
 
-    #[clap(default_value = "100", short, long)]
-    pub count_prove: u32,
+	#[arg(short, long, default_value_t = 100)]
+	count_proves_block: u32,
 
-    #[clap(default_value = "4", short, long)]
-    pub degree_prove: u32,
-    // #[arg(short, long, default_value_t = true)]
-    // debug: bool,
+	#[arg(short, long, default_value_t = 4)]
+	prove_degree: u32,
+
+	#[arg(short, long, default_value_t = true)]
+	debug: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()?
-        // .add_directive("jsonrpsee[method_call{name = \"authorize\"}]=trace".parse()?);
-        .add_directive("jsonrpsee[method_call{}]=trace".parse()?);
+	let args = Args::parse();
 
-    tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(filter)
-        .with_max_level(tracing::Level::DEBUG)
-        .finish()
-        .try_init()
-        .expect("setting default subscriber failed");
+	if args.debug {
+		let filter = tracing_subscriber::EnvFilter::try_from_default_env()?
+			.add_directive("jsonrpsee[method_call{}]=trace".parse()?);
 
-    let args = Args::parse();
-    let device = device::Device::connect(
-        args.server,
-        &args.address,
-        &args.token,
-        args.count_prove,
-        args.degree_prove,
-    )
-    .await;
-    device.prove_status().await;
-    device.prove().await;
+		tracing_subscriber::FmtSubscriber::builder()
+			.with_env_filter(filter)
+			.with_max_level(tracing::Level::DEBUG)
+			.finish()
+			.try_init()
+			.expect("setting default subscriber failed");
+	}
 
-    Ok(())
+	let device = device::Device::connect(
+		args.server,
+		args.workername,
+		args.apikey,
+		args.count_proves_block,
+		args.prove_degree,
+	)
+	.await;
+
+	device.prove_status().await;
+	device.prove().await;
+
+	Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    // use futures::StreamExt;
-    // use jsonrpsee::{core::error::SubscriptionClosed, server::ServerBuilder, RpcModule};
-    // use tokio::time::interval;
-    // use tokio_stream::wrappers::IntervalStream;
-    // use std::net::SocketAddr;
-    // pub async fn run_server(addr: &str) -> Result<SocketAddr> {
-    //     let server = ServerBuilder::default().build(addr).await?;
-    //     let mut module = RpcModule::new(());
-    //     module
-    //         .register_subscription("subscribe", "subscribe", "unsubscribe", |_params, mut sink, _| {
-    //             let interval = interval(Duration::from_secs(6));
-    //             let stream = IntervalStream::new(interval).map(move |i| {
-    //                 if i.elapsed().as_secs() % 2 ==0 {
-    //                     "target, 11"
-    //                 } else {
-    //                     "job, 10, 111, 123456789cba, 9"
-    //                 }
-    //             });
+#[cfg(any(unix))]
+fn hostname() -> String {
+	use libc;
+	use std::os::unix::ffi::OsStringExt;
 
-    //             tokio::spawn(async move {
-    //                 if let SubscriptionClosed::Failed(err) = sink.pipe_from_stream(stream).await {
-    //                     sink.close(err);
-    //                 }
-    //             });
-    //             Ok(())
-    //         })
-    //         .unwrap();
+	let size = unsafe { libc::sysconf(libc::_SC_HOST_NAME_MAX) as libc::size_t };
+	let mut buffer = vec![0u8; size];
 
-    //     module.register_method("submit", |_, _| Ok(true))?;
+	let result = unsafe { libc::gethostname(buffer.as_mut_ptr() as *mut libc::c_char, size) };
 
-    //     let addr = server.local_addr()?;
-    //     let handle = server.start(module)?;
+	if result != 0 {
+		// return Err(io::Error::last_os_error());
+		return "unknown".into();
+	}
 
-    //     tokio::spawn(handle.stopped()); //ServerHandle
+	let end = bytes.iter().position(|&byte| byte == 0x00).unwrap_or_else(|| bytes.len());
+	bytes.resize(end, 0x00);
 
-    // 	Ok(addr)
-    // }
+	OsString::from_vec(bytes).into_string().unwrap_or("unknown".into())
+}
 
-    #[tokio::test]
-    async fn client_should_work() {
-        // mockserver::run_server(&args.address).await?;
-    }
+#[cfg(target_os = "windows")]
+fn hostname() -> String {
+	use std::os::windows::ffi::OsStringExt;
+	use winapi::um::sysinfoapi::{
+		ComputerNamePhysicalDnsHostname as Hostname, GetComputerNameExW as GetName,
+	};
+
+	let mut size = 0;
+	unsafe {
+		let result = GetName(Hostname, std::ptr::null_mut(), &mut size);
+		debug_assert_eq!(result, 0);
+	};
+
+	let mut buffer = Vec::with_capacity(size as usize);
+	let result = unsafe { GetName(Hostname, buffer.as_mut_ptr(), &mut size) };
+
+	if result == 0 {
+		// Err(std::io::Error::last_os_error().into());
+
+		"unknown".into()
+	} else {
+		unsafe {
+			buffer.set_len(size as usize);
+		}
+
+		OsString::from_wide(&buffer).into_string().unwrap_or("unknown".into())
+	}
 }

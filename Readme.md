@@ -395,3 +395,48 @@ pub struct InternalLedger<N: Network, B: BlockStorage<N>, P: ProgramStorage<N>> 
 
 }
 ```
+```rs
+Ledger
+  vm { Process, ConsensusStore } add_next_block/finalize foreach transactions -> process(deploy/execute)
+  current_block
+
+  add_next_block() -> vm.add_next_block() foreach transactions -> process(deploy/execute)
+  create_transfer() -> records = self.find_unspent_records(&ViewKey), Transaction::execute(
+
+  latest_epoch_challenge()
+    epoch_starting_height = latest_height - latest_height % N::NUM_BLOCKS_PER_EPOCH;
+    epoch_block_hash = self.vm.block_store().get_previous_block_hash(epoch_starting_height)?;
+    latest_epoch_number = self.current_block.read().height() / N::NUM_BLOCKS_PER_EPOCH
+
+    EpochChallenge::new(latest_epoch_number, epoch_block_hash, N::COINBASE_PUZZLE_DEGREE)
+
+
+Prover 
+  puzzle_request -> self.ledger.latest_epoch_challenge() (num/hash/degree)
+  task_loop {
+    solution = prove(epoch,height,address,nonce)
+    message = Message::UnconfirmedSolution({ solution.commitment(), solution })
+    request = RouterRequest::MessagePropagate(message,)
+    prover.router.process(request)
+  }
+
+Beacon
+  task_loop { 定时打块，块里
+    let time_to_wait = ROUND_TIME.saturating_sub(beacon.block_generation_time.load(Ordering::SeqCst));
+    // Produce the next block and propagate it to all peers.
+    beacon.produce_next_block()
+      // Produce a transaction if the mempool is empty.
+      transaction = beacon.ledger.create_transfer(beacon.private_key()
+      beacon.consensus.add_unconfirmed_transaction(transaction)
+      // XXX，从mem_pool取所有候选交易和候选证明解决方案
+      // 创建coinbase，rewards和Block
+      next_block = beacon.consensus.propose_next_block(beacon.private_key()
+
+      beacon.consensus.advance_to_next_block(&next_block) 
+      message = Message::UnconfirmedBlock({height,hash,serialized_block),
+      router.process(RouterRequest::MessagePropagate(message,
+  }  
+
+add_unconfirmed_transaction
+  Ledger/beacon -> Consensus -> Mempool
+```
